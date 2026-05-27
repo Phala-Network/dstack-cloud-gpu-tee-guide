@@ -5,7 +5,7 @@ Public guide for deploying a Confidential Compute GPU workload on
 [`dstack-cloud`](https://github.com/Phala-Network/meta-dstack-cloud).
 
 - **English:** [`guide_EN.md`](guide_EN.md)
-- **中文:** [`guide_CN.md`](guide_CN.md) (coming soon)
+- **中文:** _coming soon_
 
-Architecture diagram, troubleshooting notes, and example apps live under
-[`workshop/`](workshop/).
+The architecture diagram, troubleshooting cheat sheet, and image-build
+recipe live inside `guide_EN.md` (see §1 and the appendices).

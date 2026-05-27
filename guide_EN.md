@@ -75,6 +75,7 @@ You'll need these on your local machine:
 | Tool                                            | Tested version | Notes |
 | ----------------------------------------------- | -------------- | ----- |
 | [gcloud SDK](https://cloud.google.com/sdk/docs/install) | 565+        | `gcloud auth login` against your GCP account |
+| `gsutil`                                        | bundled with gcloud SDK | `dstack-cloud deploy` shells out to `gsutil cp` to stage the boot/shared images; make sure it's on `$PATH` (`ln -s "$(gcloud info --format='value(installation.sdk_root)')/bin/gsutil" ~/.local/bin/gsutil` if missing) |
 | [`dstack-cloud`](https://github.com/Phala-Network/meta-dstack-cloud/blob/main/scripts/bin/dstack-cloud) | latest from `main` | single Python file, drop on `$PATH` |
 | `openssl`                                       | any            | SSH-over-TLS proxy command |
 | `curl`, `jq`, `tar`                             | any            | |
@@ -126,8 +127,11 @@ dstack-cloud --help | head -5
 > being present in your `dstack-cloud` copy — it exposes
 > `gcp_config.provisioning_model` (default `STANDARD`, set to `SPOT`
 > for H100 without on-demand quota). The `curl` command above pulls
-> from `main`, so once #15 lands you're set; if you pinned an older
-> revision, refresh it before proceeding.
+> from `main`, so once #15 lands you're set; **if you already had
+> `dstack-cloud` installed before #15 was merged, re-run the `curl`
+> above to refresh it** — otherwise `dstack-cloud new` will produce an
+> `app.json` without the `provisioning_model` field and your SPOT
+> setting in §3.2 will silently fall back to `STANDARD`.
 
 ### 2.4 Configure `dstack-cloud`
 
@@ -283,12 +287,14 @@ docker run --rm --privileged --pid=host --net=host -v /:/host \
   -e SSH_GITHUB_USER="<your-github-handle>" \
   kvin/dstack-openssh-installer:latest
 echo "OpenSSH installation complete"
-chmod +x prelaunch.sh
 ```
 
 `SSH_GITHUB_USER` should be a GitHub handle whose **public keys** you
 want to allow. Keys are fetched from `https://github.com/<user>.keys`
 at deploy time.
+
+`dstack-cloud new` already creates `prelaunch.sh` as executable
+(`0755`), so you don't need to chmod it after editing.
 
 ---
 
@@ -299,8 +305,11 @@ at deploy time.
 ```bash
 dstack-cloud prepare
 ls shared/
-# .instance_info  .sys-config.json  .user-config  app-compose.json
+# .instance_info  .sys-config.json  app-compose.json
 ```
+
+`.user-config` stays at the project root after `prepare`; it's only
+copied into the shared FAT image at `deploy` time.
 
 ### 4.2 Deploy
 
@@ -327,18 +336,23 @@ dstack-cloud logs -n 20000 | grep -iE \
 You're looking for, in order:
 
 ```
-dstack-prepare.sh ... Requesting app keys from KMS
+dstack-prepare.sh ... Requesting app keys from KMS: https://kms.tdxlab.dstack.org:13001/prpc
 dstack-prepare.sh ... Key provider info: KeyProviderInfo { name: "kms", ... }
 dstack-prepare.sh ... Setting up disk encryption
 ...
 NVRM: loading NVIDIA UNIX Open Kernel Module for x86_64  580.105.08
-libspdm_check_crypto_backend: LKCA wrappers found.
 ...
-app-compose.sh ... Container dstack-pytorch-1  Started
+app-compose.sh ... pytorch Pulled
+app-compose.sh ... Container dstack-pytorch-1  Creating
 ```
 
-If you see `libspdm expects LKCA but found stubs!`, you booted the
-wrong image (probably `0.6.0`). Re-pull `0.6.1+`.
+Note that the SPDM/LKCA handshake messages (`libspdm_check_crypto_backend:
+LKCA wrappers found.` etc.) go to the kernel/journal but are **not**
+emitted on the serial console that `dstack-cloud logs` shows. Confirm
+LKCA actually engaged via `nvidia-smi conf-compute -f` after SSH in
+(§5.3) — if `CC status: ON` you're good. If you see the stub-fallback
+warning `libspdm expects LKCA but found stubs!` here (on a `0.6.0` or
+older image, where it *does* leak to dmesg), re-pull `0.6.1+`.
 
 If you see `Failed to get app keys from KMS ... Failed to decode
 attestation`, the KMS at `:13001` is older than your guest image.
