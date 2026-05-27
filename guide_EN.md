@@ -121,14 +121,13 @@ chmod +x ~/.local/bin/dstack-cloud
 dstack-cloud --help | head -5
 ```
 
-> **H100 spot patch (temporary).** The shipped `dstack-cloud` does not
-> yet pass `--provisioning-model=SPOT` to `gcloud`. Until that's
-> upstream, patch your local copy:
->
-> ```bash
-> sed -i 's|"--maintenance-policy=TERMINATE",|"--maintenance-policy=TERMINATE",\n            "--provisioning-model=SPOT",\n            "--instance-termination-action=STOP",|' \
->   ~/.local/bin/dstack-cloud
-> ```
+> **SPOT support.** This guide depends on
+> [meta-dstack-cloud#15](https://github.com/Phala-Network/meta-dstack-cloud/pull/15)
+> being present in your `dstack-cloud` copy — it exposes
+> `gcp_config.provisioning_model` (default `STANDARD`, set to `SPOT`
+> for H100 without on-demand quota). The `curl` command above pulls
+> from `main`, so once #15 lands you're set; if you pinned an older
+> revision, refresh it before proceeding.
 
 ### 2.4 Configure `dstack-cloud`
 
@@ -217,7 +216,8 @@ Replace the `gcp_config` block. Key changes:
     "instance_name": "dstack-gpu-hello",
     "machine_type": "a3-highgpu-1g",
     "data_size": 100,
-    "network": "default"
+    "network": "default",
+    "provisioning_model": "SPOT"
   },
   "gateway_enabled": true,
   "public_logs": true,
