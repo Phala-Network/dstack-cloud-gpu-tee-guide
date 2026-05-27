@@ -237,27 +237,39 @@ services:
     runtime: nvidia
     environment:
       NVIDIA_VISIBLE_DEVICES: all
-    command: >
-      python -c "
-      import torch, time
-      print(f'CUDA available: {torch.cuda.is_available()}')
-      print(f'Device: {torch.cuda.get_device_name(0)}')
-      print(f'Capability: {torch.cuda.get_device_capability(0)}')
-      x = torch.randn(4096, 4096, device='cuda')
-      y = torch.randn(4096, 4096, device='cuda')
-      torch.cuda.synchronize(); t0 = time.time()
-      for _ in range(100):
-          z = x @ y
-      torch.cuda.synchronize()
-      dt = time.time() - t0
-      print(f'100x 4096^3 matmul: {dt:.3f}s -> {100*2*4096**3/dt/1e9:.0f} GFLOPs')
-      "
-    restart: "no"
+    command:
+      - bash
+      - -c
+      - |
+        set -e
+        python -c "
+        import torch, time
+        print(f'CUDA available: {torch.cuda.is_available()}', flush=True)
+        print(f'Device: {torch.cuda.get_device_name(0)}', flush=True)
+        print(f'Capability: {torch.cuda.get_device_capability(0)}', flush=True)
+        x = torch.randn(4096, 4096, device='cuda')
+        y = torch.randn(4096, 4096, device='cuda')
+        torch.cuda.synchronize(); t0 = time.time()
+        for _ in range(100):
+            z = x @ y
+        torch.cuda.synchronize()
+        dt = time.time() - t0
+        print(f'100x 4096^3 matmul: {dt:.3f}s -> {100*2*4096**3/dt/1e9:.0f} GFLOPs', flush=True)
+        "
+        exec sleep infinity
+    restart: unless-stopped
 ```
 
-This pulls the PyTorch image (~6 GB), runs one CUDA matmul benchmark,
-and exits. Replace with your real workload once you have the basics
+This pulls the PyTorch image (~6 GB), runs one CUDA matmul benchmark
+at startup and then idles so its stdout is preserved in `docker logs`
+(see §5.4). Replace with your real workload once you have the basics
 working.
+
+> `dstack-cloud logs` shows the **serial console** (kernel +
+> `dstack-prepare.sh` + `app-compose.sh`). It will surface things like
+> "nginx Pulled" / "Container dstack-pytorch-1 Started", but **not**
+> the container's own stdout. For that, SSH in (§5.2) and use
+> `docker logs`.
 
 ### 3.4 (Optional) `prelaunch.sh` — SSH installer
 
@@ -384,10 +396,15 @@ nvidia-smi conf-compute -grs
 
 ### 5.4 PyTorch matmul
 
-The container in §3.3 prints its result to the dstack log:
+Container stdout is not on the serial console, so use `docker logs`
+from the guest (SSH per §5.2):
 
 ```bash
-dstack-cloud logs -n 30000 | grep -A4 "CUDA available"
+ssh gpu-hello docker ps --format 'table {{.Names}}\t{{.Status}}'
+# NAMES                STATUS
+# dstack-pytorch-1     Up 2 minutes
+
+ssh gpu-hello docker logs dstack-pytorch-1
 # CUDA available: True
 # Device: NVIDIA H100 80GB HBM3
 # Capability: (9, 0)
@@ -396,8 +413,12 @@ dstack-cloud logs -n 30000 | grep -A4 "CUDA available"
 
 You should see ~38 TFLOPs FP32 on a single 4096³ matmul. Anything
 significantly lower likely means the GPU is fallback-running on host
-CPU (i.e. CUDA never initialized; double-check `nvidia-smi` from
-within the container too).
+CPU (i.e. CUDA never initialized; cross-check by running
+`docker exec dstack-pytorch-1 nvidia-smi`).
+
+If `docker logs` shows no output yet, the PyTorch image is still
+pulling (≈6 GB on a fresh boot). Watch progress on the serial
+console: `dstack-cloud logs -n 5000 | grep -E 'Pulling|Pull complete|Started'`.
 
 ---
 
